@@ -31,9 +31,10 @@ import javax.servlet.http.HttpServletRequest;
 
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.boot.actuate.autoconfigure.endpoint.web.WebEndpointProperties;
+import org.springframework.boot.actuate.endpoint.EndpointId;
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.actuate.endpoint.web.PathMappedEndpoints;
-import org.springframework.boot.autoconfigure.web.servlet.DispatcherServletPathProvider;
+import org.springframework.boot.autoconfigure.security.servlet.RequestMatcherProvider;
 import org.springframework.boot.security.servlet.ApplicationContextRequestMatcher;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
@@ -137,10 +138,7 @@ public final class EndpointRequest {
 
 		private RequestMatcher createDelegate(WebApplicationContext context) {
 			try {
-				RequestMatcherFactory requestMatcherFactory = new RequestMatcherFactory(
-						context.getBean(DispatcherServletPathProvider.class)
-								.getServletPath());
-				return createDelegate(context, requestMatcherFactory);
+				return createDelegate(context, new RequestMatcherFactory());
 			}
 			catch (NoSuchBeanDefinitionException ex) {
 				return EMPTY_MATCHER;
@@ -149,6 +147,26 @@ public final class EndpointRequest {
 
 		protected abstract RequestMatcher createDelegate(WebApplicationContext context,
 				RequestMatcherFactory requestMatcherFactory);
+
+		protected List<RequestMatcher> getLinksMatchers(
+				RequestMatcherFactory requestMatcherFactory,
+				RequestMatcherProvider matcherProvider, String basePath) {
+			List<RequestMatcher> linksMatchers = new ArrayList<>();
+			linksMatchers.add(requestMatcherFactory.antPath(matcherProvider, basePath));
+			linksMatchers
+					.add(requestMatcherFactory.antPath(matcherProvider, basePath, "/"));
+			return linksMatchers;
+		}
+
+		protected RequestMatcherProvider getRequestMatcherProvider(
+				WebApplicationContext context) {
+			try {
+				return context.getBean(RequestMatcherProvider.class);
+			}
+			catch (NoSuchBeanDefinitionException ex) {
+				return AntPathRequestMatcher::new;
+			}
+		}
 
 	}
 
@@ -205,6 +223,7 @@ public final class EndpointRequest {
 				RequestMatcherFactory requestMatcherFactory) {
 			PathMappedEndpoints pathMappedEndpoints = context
 					.getBean(PathMappedEndpoints.class);
+			RequestMatcherProvider matcherProvider = getRequestMatcherProvider(context);
 			Set<String> paths = new LinkedHashSet<>();
 			if (this.includes.isEmpty()) {
 				paths.addAll(pathMappedEndpoints.getAllPaths());
@@ -212,11 +231,11 @@ public final class EndpointRequest {
 			streamPaths(this.includes, pathMappedEndpoints).forEach(paths::add);
 			streamPaths(this.excludes, pathMappedEndpoints).forEach(paths::remove);
 			List<RequestMatcher> delegateMatchers = getDelegateMatchers(
-					requestMatcherFactory, paths);
-			if (this.includeLinks
-					&& StringUtils.hasText(pathMappedEndpoints.getBasePath())) {
-				delegateMatchers.add(
-						requestMatcherFactory.antPath(pathMappedEndpoints.getBasePath()));
+					requestMatcherFactory, matcherProvider, paths);
+			String basePath = pathMappedEndpoints.getBasePath();
+			if (this.includeLinks && StringUtils.hasText(basePath)) {
+				delegateMatchers.addAll(getLinksMatchers(requestMatcherFactory,
+						matcherProvider, basePath));
 			}
 			return new OrRequestMatcher(delegateMatchers);
 		}
@@ -227,9 +246,12 @@ public final class EndpointRequest {
 					.map(pathMappedEndpoints::getPath);
 		}
 
-		private String getEndpointId(Object source) {
+		private EndpointId getEndpointId(Object source) {
+			if (source instanceof EndpointId) {
+				return (EndpointId) source;
+			}
 			if (source instanceof String) {
-				return (String) source;
+				return (EndpointId.of((String) source));
 			}
 			if (source instanceof Class) {
 				return getEndpointId((Class<?>) source);
@@ -237,17 +259,19 @@ public final class EndpointRequest {
 			throw new IllegalStateException("Unsupported source " + source);
 		}
 
-		private String getEndpointId(Class<?> source) {
-			Endpoint annotation = AnnotatedElementUtils.getMergedAnnotation(source, Endpoint.class);
+		private EndpointId getEndpointId(Class<?> source) {
+			Endpoint annotation = AnnotatedElementUtils.getMergedAnnotation(source,
+					Endpoint.class);
 			Assert.state(annotation != null,
 					() -> "Class " + source + " is not annotated with @Endpoint");
-			return annotation.id();
+			return EndpointId.of(annotation.id());
 		}
 
 		private List<RequestMatcher> getDelegateMatchers(
-				RequestMatcherFactory requestMatcherFactory, Set<String> paths) {
-			return paths.stream()
-					.map((path) -> requestMatcherFactory.antPath(path, "/**"))
+				RequestMatcherFactory requestMatcherFactory,
+				RequestMatcherProvider matcherProvider, Set<String> paths) {
+			return paths.stream().map(
+					(path) -> requestMatcherFactory.antPath(matcherProvider, path, "/**"))
 					.collect(Collectors.toList());
 		}
 
@@ -263,8 +287,10 @@ public final class EndpointRequest {
 				RequestMatcherFactory requestMatcherFactory) {
 			WebEndpointProperties properties = context
 					.getBean(WebEndpointProperties.class);
-			if (StringUtils.hasText(properties.getBasePath())) {
-				return requestMatcherFactory.antPath(properties.getBasePath());
+			String basePath = properties.getBasePath();
+			if (StringUtils.hasText(basePath)) {
+				return new OrRequestMatcher(getLinksMatchers(requestMatcherFactory,
+						getRequestMatcherProvider(context), basePath));
 			}
 			return EMPTY_MATCHER;
 		}
@@ -276,18 +302,13 @@ public final class EndpointRequest {
 	 */
 	private static class RequestMatcherFactory {
 
-		private final String servletPath;
-
-		RequestMatcherFactory(String servletPath) {
-			this.servletPath = servletPath;
-		}
-
-		public RequestMatcher antPath(String... parts) {
-			String pattern = (this.servletPath.equals("/") ? "" : this.servletPath);
+		public RequestMatcher antPath(RequestMatcherProvider matcherProvider,
+				String... parts) {
+			StringBuilder pattern = new StringBuilder();
 			for (String part : parts) {
-				pattern += part;
+				pattern.append(part);
 			}
-			return new AntPathRequestMatcher(pattern);
+			return matcherProvider.getRequestMatcher(pattern.toString());
 		}
 
 	}

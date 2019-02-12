@@ -18,11 +18,8 @@ package org.springframework.boot.autoconfigure.integration;
 
 import javax.management.MBeanServer;
 
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 
-import org.springframework.beans.DirectFieldAccessor;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.integration.IntegrationAutoConfiguration.IntegrationComponentScanConfiguration;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration;
@@ -36,17 +33,18 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.integration.annotation.IntegrationComponentScan;
 import org.springframework.integration.annotation.MessagingGateway;
+import org.springframework.integration.config.IntegrationManagementConfigurer;
 import org.springframework.integration.core.MessageSource;
 import org.springframework.integration.endpoint.MessageProcessorMessageSource;
 import org.springframework.integration.gateway.RequestReplyExchanger;
 import org.springframework.integration.handler.MessageProcessor;
 import org.springframework.integration.support.channel.HeaderChannelRegistry;
-import org.springframework.integration.support.management.IntegrationManagementConfigurer;
 import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jmx.export.MBeanExporter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.Mockito.mock;
 
 /**
@@ -57,9 +55,6 @@ import static org.mockito.Mockito.mock;
  * @author Vedran Pavic
  */
 public class IntegrationAutoConfigurationTests {
-
-	@Rule
-	public ExpectedException thrown = ExpectedException.none();
 
 	private ApplicationContextRunner contextRunner = new ApplicationContextRunner()
 			.withConfiguration(AutoConfigurations.of(JmxAutoConfiguration.class,
@@ -189,8 +184,8 @@ public class IntegrationAutoConfigurationTests {
 					assertThat(properties.getJdbc().getInitializeSchema())
 							.isEqualTo(DataSourceInitializationMode.NEVER);
 					JdbcOperations jdbc = context.getBean(JdbcOperations.class);
-					this.thrown.expect(BadSqlGrammarException.class);
-					jdbc.queryForList("select * from INT_MESSAGE");
+					assertThatExceptionOfType(BadSqlGrammarException.class).isThrownBy(
+							() -> jdbc.queryForList("select * from INT_MESSAGE"));
 				});
 	}
 
@@ -208,7 +203,7 @@ public class IntegrationAutoConfigurationTests {
 					assertThat(properties.getJdbc().getInitializeSchema())
 							.isEqualTo(DataSourceInitializationMode.EMBEDDED);
 					JdbcOperations jdbc = context.getBean(JdbcOperations.class);
-					jdbc.queryForList("select * from INT_MESSAGE").isEmpty();
+					assertThat(jdbc.queryForList("select * from INT_MESSAGE")).isEmpty();
 				});
 	}
 
@@ -217,8 +212,8 @@ public class IntegrationAutoConfigurationTests {
 		this.contextRunner.withUserConfiguration(MessageSourceConfiguration.class)
 				.run((context) -> {
 					assertThat(context).hasBean("myMessageSource");
-					assertThat(new DirectFieldAccessor(context.getBean("myMessageSource"))
-							.getPropertyValue("countsEnabled")).isEqualTo(true);
+					assertThat(((MessageProcessorMessageSource) context
+							.getBean("myMessageSource")).isCountsEnabled()).isTrue();
 				});
 	}
 

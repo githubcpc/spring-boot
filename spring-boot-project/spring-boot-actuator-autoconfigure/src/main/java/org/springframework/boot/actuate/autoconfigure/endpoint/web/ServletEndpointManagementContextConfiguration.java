@@ -27,7 +27,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type;
-import org.springframework.boot.autoconfigure.web.servlet.DispatcherServletPathProvider;
+import org.springframework.boot.autoconfigure.web.servlet.DispatcherServletPath;
+import org.springframework.boot.autoconfigure.web.servlet.JerseyApplicationPath;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -41,7 +42,7 @@ import org.springframework.web.servlet.DispatcherServlet;
  * @author Madhura Bhave
  * @since 2.0.0
  */
-@Configuration
+@ManagementContextConfiguration
 @ConditionalOnWebApplication(type = Type.SERVLET)
 public class ServletEndpointManagementContextConfiguration {
 
@@ -55,11 +56,12 @@ public class ServletEndpointManagementContextConfiguration {
 
 	@Configuration
 	@ConditionalOnClass(DispatcherServlet.class)
-	public class WebMvcServletEndpointManagementContextConfiguration {
+	public static class WebMvcServletEndpointManagementContextConfiguration {
 
 		private final ApplicationContext context;
 
-		public WebMvcServletEndpointManagementContextConfiguration(ApplicationContext context) {
+		public WebMvcServletEndpointManagementContextConfiguration(
+				ApplicationContext context) {
 			this.context = context;
 		}
 
@@ -67,9 +69,10 @@ public class ServletEndpointManagementContextConfiguration {
 		public ServletEndpointRegistrar servletEndpointRegistrar(
 				WebEndpointProperties properties,
 				ServletEndpointsSupplier servletEndpointsSupplier) {
-			DispatcherServletPathProvider servletPathProvider = this.context.getBean(DispatcherServletPathProvider.class);
-			String servletPath = (servletPathProvider.getServletPath().equals("/") ? "" : servletPathProvider.getServletPath());
-			return new ServletEndpointRegistrar(servletPath + properties.getBasePath(),
+			DispatcherServletPath dispatcherServletPath = this.context
+					.getBean(DispatcherServletPath.class);
+			return new ServletEndpointRegistrar(
+					dispatcherServletPath.getRelativePath(properties.getBasePath()),
 					servletEndpointsSupplier.getEndpoints());
 		}
 
@@ -78,13 +81,23 @@ public class ServletEndpointManagementContextConfiguration {
 	@Configuration
 	@ConditionalOnClass(ResourceConfig.class)
 	@ConditionalOnMissingClass("org.springframework.web.servlet.DispatcherServlet")
-	public class JerseyServletEndpointManagementContextConfiguration {
+	public static class JerseyServletEndpointManagementContextConfiguration {
+
+		private final ApplicationContext context;
+
+		public JerseyServletEndpointManagementContextConfiguration(
+				ApplicationContext context) {
+			this.context = context;
+		}
 
 		@Bean
 		public ServletEndpointRegistrar servletEndpointRegistrar(
 				WebEndpointProperties properties,
 				ServletEndpointsSupplier servletEndpointsSupplier) {
-			return new ServletEndpointRegistrar(properties.getBasePath(),
+			JerseyApplicationPath jerseyApplicationPath = this.context
+					.getBean(JerseyApplicationPath.class);
+			return new ServletEndpointRegistrar(
+					jerseyApplicationPath.getRelativePath(properties.getBasePath()),
 					servletEndpointsSupplier.getEndpoints());
 		}
 

@@ -18,9 +18,12 @@ package org.springframework.boot.actuate.metrics.web.reactive.client;
 
 import java.io.IOException;
 import java.net.URI;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.MockClock;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.Before;
@@ -70,7 +73,7 @@ public class MetricsWebClientFilterFunctionTests {
 		ClientRequest request = ClientRequest.create(HttpMethod.GET,
 				URI.create("http://example.com/projects/spring-boot")).build();
 		given(this.response.statusCode()).willReturn(HttpStatus.OK);
-		this.filterFunction.filter(request, this.exchange).block();
+		this.filterFunction.filter(request, this.exchange).block(Duration.ofSeconds(30));
 		assertThat(this.registry.get("http.client.requests")
 				.tags("method", "GET", "uri", "/projects/spring-boot", "status", "200")
 				.timer().count()).isEqualTo(1);
@@ -83,7 +86,7 @@ public class MetricsWebClientFilterFunctionTests {
 						URI.create("http://example.com/projects/spring-boot"))
 				.attribute(URI_TEMPLATE_ATTRIBUTE, "/projects/{project}").build();
 		given(this.response.statusCode()).willReturn(HttpStatus.OK);
-		this.filterFunction.filter(request, this.exchange).block();
+		this.filterFunction.filter(request, this.exchange).block(Duration.ofSeconds(30));
 		assertThat(this.registry.get("http.client.requests")
 				.tags("method", "GET", "uri", "/projects/{project}", "status", "200")
 				.timer().count()).isEqualTo(1);
@@ -95,7 +98,8 @@ public class MetricsWebClientFilterFunctionTests {
 				URI.create("http://example.com/projects/spring-boot")).build();
 		ExchangeFunction errorExchange = (r) -> Mono.error(new IOException());
 		this.filterFunction.filter(request, errorExchange)
-				.onErrorResume(IOException.class, (t) -> Mono.empty()).block();
+				.onErrorResume(IOException.class, (t) -> Mono.empty())
+				.block(Duration.ofSeconds(30));
 		assertThat(
 				this.registry
 						.get("http.client.requests").tags("method", "GET", "uri",
@@ -110,11 +114,26 @@ public class MetricsWebClientFilterFunctionTests {
 		ExchangeFunction exchange = (r) -> Mono.error(new IllegalArgumentException());
 		this.filterFunction.filter(request, exchange)
 				.onErrorResume(IllegalArgumentException.class, (t) -> Mono.empty())
-				.block();
+				.block(Duration.ofSeconds(30));
 		assertThat(this.registry
 				.get("http.client.requests").tags("method", "GET", "uri",
 						"/projects/spring-boot", "status", "CLIENT_ERROR")
 				.timer().count()).isEqualTo(1);
+	}
+
+	@Test
+	public void filterWhenExceptionAndRetryShouldNotCumulateRecordTime() {
+		ClientRequest request = ClientRequest.create(HttpMethod.GET,
+				URI.create("http://example.com/projects/spring-boot")).build();
+		ExchangeFunction exchange = (r) -> Mono.error(new IllegalArgumentException())
+				.delaySubscription(Duration.ofMillis(300)).cast(ClientResponse.class);
+		this.filterFunction.filter(request, exchange).retry(1)
+				.onErrorResume(IllegalArgumentException.class, (t) -> Mono.empty())
+				.block(Duration.ofSeconds(30));
+		Timer timer = this.registry.get("http.client.requests").tags("method", "GET",
+				"uri", "/projects/spring-boot", "status", "CLIENT_ERROR").timer();
+		assertThat(timer.count()).isEqualTo(2);
+		assertThat(timer.max(TimeUnit.MILLISECONDS)).isLessThan(600);
 	}
 
 }

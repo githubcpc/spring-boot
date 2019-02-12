@@ -27,18 +27,14 @@ import io.searchbox.client.JestResult;
 import io.searchbox.client.http.JestHttpClient;
 import io.searchbox.core.Get;
 import io.searchbox.core.Index;
-import org.junit.After;
-import org.junit.Before;
+import org.junit.ClassRule;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 
 import org.springframework.beans.factory.BeanCreationException;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.data.elasticsearch.ElasticsearchNodeTemplate;
 import org.springframework.boot.autoconfigure.gson.GsonAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.boot.testsupport.runner.classpath.ClassPathOverrides;
-import org.springframework.boot.testsupport.runner.classpath.ModifiedClassPathRunner;
+import org.springframework.boot.testsupport.testcontainers.ElasticsearchContainer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -52,28 +48,19 @@ import static org.mockito.Mockito.mock;
  * @author Stephane Nicoll
  * @author Andy Wilkinson
  */
-@RunWith(ModifiedClassPathRunner.class)
-@ClassPathOverrides("org.apache.logging.log4j:log4j-core:2.10.0")
 public class JestAutoConfigurationTests {
+
+	@ClassRule
+	public static ElasticsearchContainer elasticsearch = new ElasticsearchContainer();
 
 	private ApplicationContextRunner contextRunner = new ApplicationContextRunner()
 			.withConfiguration(AutoConfigurations.of(GsonAutoConfiguration.class,
 					JestAutoConfiguration.class));
 
-	@Before
-	public void preventElasticsearchFromConfiguringNetty() {
-		System.setProperty("es.set.netty.runtime.available.processors", "false");
-	}
-
-	@After
-	public void close() {
-		System.clearProperty("es.set.netty.runtime.available.processors");
-	}
-
 	@Test
 	public void jestClientOnLocalhostByDefault() {
-		this.contextRunner.run((context) ->
-				assertThat(context).hasSingleBean(JestClient.class));
+		this.contextRunner
+				.run((context) -> assertThat(context).hasSingleBean(JestClient.class));
 	}
 
 	@Test
@@ -122,23 +109,32 @@ public class JestAutoConfigurationTests {
 
 	@Test
 	public void jestCanCommunicateWithElasticsearchInstance() {
-		new ElasticsearchNodeTemplate().doWithNode((node) -> this.contextRunner
+		this.contextRunner
 				.withPropertyValues("spring.elasticsearch.jest.uris=http://localhost:"
-						+ node.getHttpPort())
+						+ elasticsearch.getMappedPort())
 				.run((context) -> {
 					JestClient client = context.getBean(JestClient.class);
 					Map<String, String> source = new HashMap<>();
 					source.put("a", "alpha");
 					source.put("b", "bravo");
-					Index index = new Index.Builder(source).index("foo")
-							.type("bar").id("1").build();
+					Index index = new Index.Builder(source).index("foo").type("bar")
+							.id("1").build();
 					execute(client, index);
 					Get getRequest = new Get.Builder("foo", "1").build();
-					assertThat(execute(client, getRequest).getResponseCode()).isEqualTo(200);
-				}));
+					assertThat(execute(client, getRequest).getResponseCode())
+							.isEqualTo(200);
+				});
 	}
 
 	private JestResult execute(JestClient client, Action<? extends JestResult> action) {
+		for (int i = 0; i < 2; i++) {
+			try {
+				return client.execute(action);
+			}
+			catch (IOException ex) {
+				// Continue
+			}
+		}
 		try {
 			return client.execute(action);
 		}

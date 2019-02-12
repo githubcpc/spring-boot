@@ -16,7 +16,6 @@
 
 package org.springframework.boot.actuate.cache;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,17 +67,17 @@ public class CachesEndpoint {
 					new CacheDescriptor(entry.getTarget()));
 		});
 		Map<String, CacheManagerDescriptor> cacheManagerDescriptors = new LinkedHashMap<>();
-		descriptors.forEach((name, entries) ->
-				cacheManagerDescriptors.put(name, new CacheManagerDescriptor(entries)));
+		descriptors.forEach((name, entries) -> cacheManagerDescriptors.put(name,
+				new CacheManagerDescriptor(entries)));
 		return new CachesReport(cacheManagerDescriptors);
 	}
 
 	/**
 	 * Return a {@link CacheDescriptor} for the specified cache.
-	 * @param cache then name of the cache
+	 * @param cache the name of the cache
 	 * @param cacheManager the name of the cacheManager (can be {@code null}
 	 * @return the descriptor of the cache or {@code null} if no such cache exists
-	 * @throws NonUniqueCacheException if more than one cache with that name exist and no
+	 * @throws NonUniqueCacheException if more than one cache with that name exists and no
 	 * {@code cacheManager} was provided to identify a unique candidate
 	 */
 	@ReadOperation
@@ -97,11 +96,12 @@ public class CachesEndpoint {
 
 	/**
 	 * Clear the specific {@link Cache}.
-	 * @param cache then name of the cache
+	 * @param cache the name of the cache
 	 * @param cacheManager the name of the cacheManager (can be {@code null} to match all)
 	 * @return {@code true} if the cache was cleared or {@code false} if no such cache
 	 * exists
-	 * @throws NonUniqueCacheException if more than one cache with that name exist and no
+	 * @throws NonUniqueCacheException if more than one cache with that name exists and no
+	 * {@code cacheManager} was provided to identify a unique candidate
 	 */
 	@DeleteOperation
 	public boolean clearCache(@Selector String cache, @Nullable String cacheManager) {
@@ -112,21 +112,19 @@ public class CachesEndpoint {
 
 	private List<CacheEntry> getCacheEntries(Predicate<String> cacheNamePredicate,
 			Predicate<String> cacheManagerNamePredicate) {
-		List<CacheEntry> entries = new ArrayList<>();
-		this.cacheManagers.keySet().stream().filter(cacheManagerNamePredicate)
-				.forEach((cacheManagerName) -> entries
-						.addAll(getCacheEntries(cacheManagerName, cacheNamePredicate)));
-		return entries;
+		return this.cacheManagers.keySet().stream().filter(cacheManagerNamePredicate)
+				.flatMap((cacheManagerName) -> getCacheEntries(cacheManagerName,
+						cacheNamePredicate).stream())
+				.collect(Collectors.toList());
 	}
 
 	private List<CacheEntry> getCacheEntries(String cacheManagerName,
 			Predicate<String> cacheNamePredicate) {
 		CacheManager cacheManager = this.cacheManagers.get(cacheManagerName);
-		List<CacheEntry> entries = new ArrayList<>();
-		cacheManager.getCacheNames().stream().filter(cacheNamePredicate)
+		return cacheManager.getCacheNames().stream().filter(cacheNamePredicate)
 				.map(cacheManager::getCache).filter(Objects::nonNull)
-				.forEach((cache) -> entries.add(new CacheEntry(cache, cacheManagerName)));
-		return entries;
+				.map((cache) -> new CacheEntry(cache, cacheManagerName))
+				.collect(Collectors.toList());
 	}
 
 	private CacheEntry extractUniqueCacheEntry(String cache, List<CacheEntry> entries) {
@@ -150,7 +148,7 @@ public class CachesEndpoint {
 	}
 
 	private Predicate<String> isNameMatch(String name) {
-		return (name != null ? ((requested) -> requested.equals(name)) : matchAll());
+		return (name != null) ? ((requested) -> requested.equals(name)) : matchAll();
 	}
 
 	private Predicate<String> matchAll() {

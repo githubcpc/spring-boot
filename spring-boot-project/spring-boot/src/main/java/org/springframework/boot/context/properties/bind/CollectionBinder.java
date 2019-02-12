@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2018 the original author or authors.
+ * Copyright 2012-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,13 +40,14 @@ class CollectionBinder extends IndexedElementsBinder<Collection<Object>> {
 	@Override
 	protected Object bindAggregate(ConfigurationPropertyName name, Bindable<?> target,
 			AggregateElementBinder elementBinder) {
-		Class<?> collectionType = (target.getValue() != null ? List.class
-				: target.getType().resolve(Object.class));
+		Class<?> collectionType = (target.getValue() != null) ? List.class
+				: target.getType().resolve(Object.class);
 		ResolvableType aggregateType = ResolvableType.forClassWithGenerics(List.class,
 				target.getType().asCollection().getGenerics());
 		ResolvableType elementType = target.getType().asCollection().getGeneric();
 		IndexedCollectionSupplier result = new IndexedCollectionSupplier(
-				() -> CollectionFactory.createCollection(collectionType, 0));
+				() -> CollectionFactory.createCollection(collectionType,
+						elementType.resolve(), 0));
 		bindIndexed(name, target, elementBinder, aggregateType, elementType, result);
 		if (result.wasSupplied()) {
 			return result.get();
@@ -55,10 +56,9 @@ class CollectionBinder extends IndexedElementsBinder<Collection<Object>> {
 	}
 
 	@Override
-	@SuppressWarnings("unchecked")
-	protected Collection<Object> merge(Supplier<?> existing,
+	protected Collection<Object> merge(Supplier<Collection<Object>> existing,
 			Collection<Object> additional) {
-		Collection<Object> existingCollection = (Collection<Object>) existing.get();
+		Collection<Object> existingCollection = getExistingIfPossible(existing);
 		if (existingCollection == null) {
 			return additional;
 		}
@@ -69,6 +69,16 @@ class CollectionBinder extends IndexedElementsBinder<Collection<Object>> {
 		}
 		catch (UnsupportedOperationException ex) {
 			return createNewCollection(additional);
+		}
+	}
+
+	private Collection<Object> getExistingIfPossible(
+			Supplier<Collection<Object>> existing) {
+		try {
+			return existing.get();
+		}
+		catch (Exception ex) {
+			return null;
 		}
 	}
 

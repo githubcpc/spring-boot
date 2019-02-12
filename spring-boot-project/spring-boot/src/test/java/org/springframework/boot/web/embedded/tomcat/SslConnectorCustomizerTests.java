@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2018 the original author or authors.
+ * Copyright 2012-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,15 +31,19 @@ import org.apache.catalina.webresources.TomcatURLStreamHandlerFactory;
 import org.apache.tomcat.util.net.SSLHostConfig;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 
+import org.springframework.boot.testsupport.rule.OutputCapture;
 import org.springframework.boot.web.server.Ssl;
 import org.springframework.boot.web.server.SslStoreProvider;
+import org.springframework.boot.web.server.WebServerException;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
@@ -54,6 +58,9 @@ public class SslConnectorCustomizerTests {
 
 	private Connector connector;
 
+	@Rule
+	public OutputCapture output = new OutputCapture();
+
 	@Before
 	public void setup() {
 		this.tomcat = new Tomcat();
@@ -64,6 +71,7 @@ public class SslConnectorCustomizerTests {
 
 	@After
 	public void stop() throws Exception {
+		System.clearProperty("javax.net.ssl.trustStorePassword");
 		ReflectionTestUtils.setField(TomcatURLStreamHandlerFactory.class, "instance",
 				null);
 		ReflectionTestUtils.setField(URL.class, "factory", null);
@@ -167,6 +175,7 @@ public class SslConnectorCustomizerTests {
 	@Test
 	public void customizeWhenSslStoreProviderPresentShouldIgnorePasswordFromSsl()
 			throws Exception {
+		System.setProperty("javax.net.ssl.trustStorePassword", "trustStoreSecret");
 		Ssl ssl = new Ssl();
 		ssl.setKeyPassword("password");
 		ssl.setKeyStorePassword("secret");
@@ -179,6 +188,15 @@ public class SslConnectorCustomizerTests {
 		customizer.customize(connector);
 		this.tomcat.start();
 		assertThat(connector.getState()).isEqualTo(LifecycleState.STARTED);
+		assertThat(this.output.toString()).doesNotContain("Password verification failed");
+	}
+
+	@Test
+	public void customizeWhenSslIsEnabledWithNoKeyStoreThrowsWebServerException() {
+		assertThatExceptionOfType(WebServerException.class)
+				.isThrownBy(() -> new SslConnectorCustomizer(new Ssl(), null)
+						.customize(this.tomcat.getConnector()))
+				.withMessageContaining("Could not load key store 'null'");
 	}
 
 	private KeyStore loadStore() throws KeyStoreException, IOException,

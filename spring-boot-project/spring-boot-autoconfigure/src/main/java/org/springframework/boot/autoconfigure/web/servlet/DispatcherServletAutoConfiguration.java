@@ -36,7 +36,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type;
 import org.springframework.boot.autoconfigure.condition.SpringBootCondition;
-import org.springframework.boot.autoconfigure.web.ServerProperties;
+import org.springframework.boot.autoconfigure.http.HttpProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.ServletRegistrationBean;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
@@ -67,7 +67,6 @@ import org.springframework.web.servlet.DispatcherServlet;
 @ConditionalOnWebApplication(type = Type.SERVLET)
 @ConditionalOnClass(DispatcherServlet.class)
 @AutoConfigureAfter(ServletWebServerFactoryAutoConfiguration.class)
-@EnableConfigurationProperties(ServerProperties.class)
 public class DispatcherServletAutoConfiguration {
 
 	/*
@@ -83,17 +82,17 @@ public class DispatcherServletAutoConfiguration {
 	@Configuration
 	@Conditional(DefaultDispatcherServletCondition.class)
 	@ConditionalOnClass(ServletRegistration.class)
-	@EnableConfigurationProperties(WebMvcProperties.class)
+	@EnableConfigurationProperties({ HttpProperties.class, WebMvcProperties.class })
 	protected static class DispatcherServletConfiguration {
+
+		private final HttpProperties httpProperties;
 
 		private final WebMvcProperties webMvcProperties;
 
-		private final ServerProperties serverProperties;
-
-		public DispatcherServletConfiguration(WebMvcProperties webMvcProperties,
-				ServerProperties serverProperties) {
+		public DispatcherServletConfiguration(HttpProperties httpProperties,
+				WebMvcProperties webMvcProperties) {
+			this.httpProperties = httpProperties;
 			this.webMvcProperties = webMvcProperties;
-			this.serverProperties = serverProperties;
 		}
 
 		@Bean(name = DEFAULT_DISPATCHER_SERVLET_BEAN_NAME)
@@ -105,6 +104,8 @@ public class DispatcherServletAutoConfiguration {
 					this.webMvcProperties.isDispatchTraceRequest());
 			dispatcherServlet.setThrowExceptionIfNoHandlerFound(
 					this.webMvcProperties.isThrowExceptionIfNoHandlerFound());
+			dispatcherServlet.setEnableLoggingRequestDetails(
+					this.httpProperties.isLogRequestDetails());
 			return dispatcherServlet;
 		}
 
@@ -116,12 +117,6 @@ public class DispatcherServletAutoConfiguration {
 			return resolver;
 		}
 
-		@Bean
-		public DispatcherServletPathProvider mainDispatcherServletPathProvider() {
-			return () -> DispatcherServletConfiguration.this.serverProperties.getServlet()
-					.getPath();
-		}
-
 	}
 
 	@Configuration
@@ -131,27 +126,23 @@ public class DispatcherServletAutoConfiguration {
 	@Import(DispatcherServletConfiguration.class)
 	protected static class DispatcherServletRegistrationConfiguration {
 
-		private final ServerProperties serverProperties;
-
 		private final WebMvcProperties webMvcProperties;
 
 		private final MultipartConfigElement multipartConfig;
 
 		public DispatcherServletRegistrationConfiguration(
-				ServerProperties serverProperties, WebMvcProperties webMvcProperties,
+				WebMvcProperties webMvcProperties,
 				ObjectProvider<MultipartConfigElement> multipartConfigProvider) {
-			this.serverProperties = serverProperties;
 			this.webMvcProperties = webMvcProperties;
 			this.multipartConfig = multipartConfigProvider.getIfAvailable();
 		}
 
 		@Bean(name = DEFAULT_DISPATCHER_SERVLET_REGISTRATION_BEAN_NAME)
 		@ConditionalOnBean(value = DispatcherServlet.class, name = DEFAULT_DISPATCHER_SERVLET_BEAN_NAME)
-		public ServletRegistrationBean<DispatcherServlet> dispatcherServletRegistration(
+		public DispatcherServletRegistrationBean dispatcherServletRegistration(
 				DispatcherServlet dispatcherServlet) {
-			ServletRegistrationBean<DispatcherServlet> registration = new ServletRegistrationBean<>(
-					dispatcherServlet,
-					this.serverProperties.getServlet().getServletMapping());
+			DispatcherServletRegistrationBean registration = new DispatcherServletRegistrationBean(
+					dispatcherServlet, this.webMvcProperties.getServlet().getPath());
 			registration.setName(DEFAULT_DISPATCHER_SERVLET_BEAN_NAME);
 			registration.setLoadOnStartup(
 					this.webMvcProperties.getServlet().getLoadOnStartup());

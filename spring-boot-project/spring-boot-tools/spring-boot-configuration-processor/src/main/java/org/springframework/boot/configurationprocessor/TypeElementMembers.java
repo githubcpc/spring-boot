@@ -104,11 +104,7 @@ class TypeElementMembers {
 			else if (isSetter(method)) {
 				String propertyName = getAccessorName(name);
 				List<ExecutableElement> matchingSetters = this.publicSetters
-						.get(propertyName);
-				if (matchingSetters == null) {
-					matchingSetters = new ArrayList<>();
-					this.publicSetters.put(propertyName, matchingSetters);
-				}
+						.computeIfAbsent(propertyName, (k) -> new ArrayList<>());
 				TypeMirror paramType = method.getParameters().get(0).asType();
 				if (getMatchingSetter(matchingSetters, paramType) == null) {
 					matchingSetters.add(method);
@@ -156,8 +152,8 @@ class TypeElementMembers {
 	}
 
 	private String getAccessorName(String methodName) {
-		String name = (methodName.startsWith("is") ? methodName.substring(2)
-				: methodName.substring(3));
+		String name = methodName.startsWith("is") ? methodName.substring(2)
+				: methodName.substring(3);
 		name = Character.toLowerCase(name.charAt(0)) + name.substring(1);
 		return name;
 	}
